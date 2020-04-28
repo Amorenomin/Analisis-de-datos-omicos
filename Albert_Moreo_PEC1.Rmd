@@ -1,0 +1,427 @@
+---
+title: "PEC1 - Análisis de datos ómicos"
+author: "Albert Moreno Mingorance"
+date: "13 de abril de 2020"
+output:
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Abstract
+
+Se realiza un análisis de microarrays para determinar el patrón de transcripción de macrófagos de ratón en presencia de tres formas recombinantes de la toxina producida por varias especies del genero Bordetella Adenilato ciclasa (CyaA). Estas formas fueron enzimáticamente activa e invasiva CyaA, enzimáticamente inactiva e invasiva, (CyaA*) y enzimáticamente inactiva y no invasiva (proCyaA*).Los resultados mostraron un gran número de genes diferencialmente expresados en presencia de CyaA, un efecto leve en la forma invasiva (CyaA*) y ningún efecto respecto al control de la forma inactiva y no invasiva.
+
+# Objectivos
+
+El estudio tiene como objetivo principal estudiar el efecto de la infección de la toxina CyaA en macrófagos, las cuales son células diana. A su vez también pretende entender que regiones de la toxina son esenciales para observar cambios transcripciones.
+
+# Material i métodos/Resultados
+# Datos
+
+Este trabajo se realizara con el conjunto de datos obtenidos del estudio titulado “Transcriptional responses of murine macrophages to the adenylate cyclase toxin of Bordetella pertussis”, publicado el año 2008 en la revista Microbial Pathogenesis. Los datos se encuentran dipositados en la base de datos “Gene Expression Omnibus (GEO)” con el identificador GSE51075.
+
+En el estudio se realizaron doce incubaciones in vitro durante 24h de macrófagos derivados de cultivo de medula ósea de ratón. Tres fueron tratados con 20 ng/ml de CyaA diluido en el medio, tres con 20 ng/ml de de CyaA*, tres con 20 ng/mlde proCyaA* y finalmente tres de control con 20 ng/ml de urea.
+
+Los microrrays utilizados para llevar acabo el experimentos fueron del tipo Affymetrix Mouse Genome 430 2.0 Array [Mouse430_2]. # Procedimiento
+
+# Procedimiento
+
+En este apartado mostraran el procedimiento utilizado para analizar los datos y los resultados obtenidos. 
+
+__1. Preparación del entorno__
+
+Definiremos el directorio de trabajo en el cual trabajaremos. Además crearemos dos carpetas una para los datos y otra donde guardaremos los resultados
+
+```{r}
+setwd("C:/Users/usuario/Documents/IMPORTANTE/Master_bioinformatica_bioestadistica/Analisi de dades omiques/pec1")
+workingDir <-getwd()
+dir.create("datos")
+dir.create("resultados")
+dataDir <-file.path(workingDir, "datos")
+resultsDir <- file.path(workingDir, "resultados")
+```
+
+__2. Instalación de paquetes__
+
+Instalaremos todos los paquetes necesarios para llevar acabo el análisis.
+
+```{r}
+#stopifnot(BiocManager::install("GEOquery"))
+#stopifnot(BiocManager::install("arrayQualityMetrics"))
+#stopifnot(BiocManager::install("affy"))
+#stopifnot(BiocManager::install("ggrepel"))
+#stopifnot(BiocManager::install("MiChip"))
+#stopifnot(BiocManager::install("genefilter"))
+#stopifnot(BiocManager::install("mouse4302.db"))
+#stopifnot(BiocManager::install("limma"))
+#stopifnot(BiocManager::install("ReactomePA"))
+```
+
+__2. Descarga de datos__
+
+Atreves del paquete “GEOquery” descargaremos los datos con el número de acceso GSE51075.
+
+```{r cars}
+stopifnot(require(GEOquery))
+gse <- getGEO("GSE51075")
+esetFromGEO <- gse[[1]]
+```
+__3. Control de calidad de los datos.__
+
+Comprobaremos la calidad de los datos mediante el paquete “arrayQualityMetrics” antes de ser normalizados y poder detectar posibles problemas que nos provoquen ruido de fondo y nos dificulte el análisis.
+
+```{r}
+stopifnot(require(arrayQualityMetrics))
+
+arrayQualityMetrics(esetFromGEO, outdir = file.path(resultsDir, "ArrayQualityMetrics_report"))
+
+```
+```{r QCRawDataRes, fig.cap="Aspect of the summary table, in the index.html file, produced by the arrayQualityMetrics package on the raw data", echo=FALSE}
+knitr::include_graphics("C:/Users/usuario/Documents/IMPORTANTE/Master_bioinformatica_bioestadistica/Analisi de dades omiques/pec1_2/resultados/ArrayQualityMetrics_report/Resumen.jpg")
+```
+
+En el informe generado en el archivo “index.html”, podemos observar los resultados obtenidos, los cuales están resumidos en la tabla que se adjunta. En ella podemos observar tres columnas indicando la calidad según tres criterios distintos. Podemos ver que en nuestro caso, no existe ningún problema de calidad de los datos.
+
+Aun así para asegurarnos, realizaremos otro análisis de componente principal teniendo en cuenta los diferentes experimentos realizados para detectar agrupaciones.
+
+```{r}
+targets<-pData(esetFromGEO)
+require(ggplot2)
+require(ggrepel)
+plotPCA3 <- function (datos, labels, factor, title, scale,colores, size = 1.5, glineas = 0.25) {
+  data <- prcomp(t(datos),scale=scale)
+  dataDf <- data.frame(data$x)
+  Group <- factor
+  loads <- round(data$sdev^2/sum(data$sdev^2)*100,1)
+  p1 <- ggplot(dataDf,aes(x=PC1, y=PC2)) +
+    theme_classic() +
+    geom_hline(yintercept = 0, color = "gray70") +
+    geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group), alpha = 0.55, size = 3) +
+    coord_cartesian(xlim = c(min(data$x[,1])-5,max(data$x[,1])+5)) +
+    scale_fill_discrete(name = "Group")
+  p1 + geom_text_repel(aes(y = PC2 + 0.25, label = labels),segment.size = 0.25, size = size) + 
+    labs(x = c(paste("PC1",loads[1],"%")),y=c(paste("PC2",loads[2],"%"))) +  
+    ggtitle(paste("Anàlisi del principal component de: ",title,sep=" "))+ 
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_color_manual(values=colores)
+  }
+```
+
+```{r}
+ plotPCA3(exprs(esetFromGEO), labels = targets$title, factor = targets$'treatment:ch1', 
+         title="Raw data", scale = FALSE, size = 4, 
+         colores = c("red", "blue", "green", "yellow"))
+```
+
+Como se puede observar en el gráfico, el primer componente representa el 77,8% de la variabilidad de las muestras. La contribución principal a esta variabilidad viene condicionada por el tratamiento con CyaA. En cambio se observa poca variabilidad entre los otros tratamientos.
+
+Por otro lado, podemos utilizar un Boxplot para visualizar de manera sencilla la distribución de intensidades de las matrices entre las muestras.
+
+
+```{r}
+boxplot(exprs(esetFromGEO), cex.axis=0.5, las=2,  which="all", col = c(rep("red", 3), rep("blue", 3), rep("green", 3), rep("yellow", 3)), main="Distribution of raw intensity values")
+```
+
+Los promedios de las intensidades obtenidas parecen bastante similares como se puede observar en el gráfico.
+
+__4. Normalización de les datos__
+
+La normalización permite reducir o eliminar variabilidad experimental de los datos. Se utilizó la función “normalizePerChipMedian” del paquete “MiChip” ya que los datos se encontraban en un ExpressionSet. Los datos normalizados los guardaremos en la nueva variable eset_normalized.
+
+```{r}
+library("MiChip")
+eset_normalized <- normalizePerChipMedian(esetFromGEO)
+```
+
+__5. Análisis de calidad de datos normalizados__
+
+```{r}
+stopifnot(require(arrayQualityMetrics))
+arrayQualityMetrics(eset_normalized, outdir = file.path(resultsDir, "ArrayQualityMetrics_normalized_data_report"))
+
+ plotPCA3(exprs(eset_normalized), labels = targets$title, factor = targets$'treatment:ch1', 
+         title="Normalized data", scale = FALSE, size = 4, 
+         colores = c("red", "blue", "green", "yellow"))
+
+ boxplot(exprs(eset_normalized), cex.axis=0.5, las=2,  which="all", col = c(rep("red", 3), rep("blue", 3), rep("green", 3), rep("yellow", 3)), main="Boxplot for arrays intensity: Normalized Data")
+
+```
+
+Al igual que en el análisis anterior, no se obtuvieron *outliers* en el análisis de arrayQualityMetrics. En cuanto al análisis de PCA la principal variabilidad en PC1 fue producida por el tratamiento con CyaA y las medias observadas en los Boxplots fueron muy similares.
+
+__6. Detección y filtrado de los genes más variables__
+
+Se trazara la variabilidad general del conjunto de genes con el objetivo de decidir que porcentaje de genes muestra una variabilidad atribuible a causas que no sean variación aleatoria. En el gráfico se observa que los genes más variables presentan una desviación estándar por encima del 90-95% del resto de desviaciones.
+
+```{r}
+sds <- apply (exprs(eset_normalized), 1, sd)
+sdsO<- sort(sds)
+plot(1:length(sdsO), sdsO, main="Distribution of variability for all genes", sub="Vertical lines represent 90% and 95% percentiles", xlab="Gene index (from least to most variable)", ylab="Standard deviation")
+abline(v=length(sds)*c(0.9,0.95))
+```
+
+Atreves de la función “nsFilter” del paquete “genefilter” procederemos al filtraje de aquellos genes con una variabilidad baja o no tienen identificadores asociados en la anotación.  
+
+```{r}
+library(genefilter)
+library(mouse4302.db)
+annotation(eset_normalized) <- "mouse4302.db"
+filtered <- nsFilter(eset_normalized, require.entrez = TRUE, remove.dupEntrez = TRUE,var.filter=TRUE, var.func=IQR, var.cutoff=0.75, filterByQuantile=TRUE, feature.exclude = "^AFFX")
+```
+```{r}
+print(filtered$filter.log)
+eset_filtered <-filtered$eset
+```
+Los datos que pasan el filtrado los guardaremos en una nueva variable eset_filtered.
+
+__7. . Almacenamiento de los datos normalizados y filtrados__
+
+Guardamos los ExpressionSet normalizados y filtrados por si hiciera falta consultar algún dato. 
+
+```{r SaveData1, results='hide', message=FALSE}
+write.csv(exprs(eset_normalized), file="./resultados/normalized.Data.csv")
+write.csv(exprs(eset_filtered), file="./resultados/normalized.Filtered.Data.csv")
+save(eset_normalized, eset_filtered, file="./resultados/normalized.Data.Rda")
+```
+
+__8. Diseño de la matriz__
+
+Crearemos una matriz para de asignar cada muestra al grupo que pertenece y poder realizar las posteriores comparaciones. 
+
+```{r DesignMatrix, message=FALSE}
+require(limma)
+designMat<- model.matrix(~0+ source_name_ch1, pData(eset_filtered))
+colnames(designMat) <- c("CyaA_inac", "CyaA", "ProCyaA", "Urea")
+print(designMat)
+```
+__9. Definición de la comparación__
+
+Crearemos una matriz de contrastes para definir las comparaciones entre grupos que vamos a realizar. En este caso compararemos las muestras incubadas con las diferentes proteínas de CyaA contra el control incubado con Urea.
+
+```{r}
+cont.matrix <- makeContrasts (CyaA_inac_urea = CyaA_inac - Urea,
+                              CyaA_urea = CyaA - Urea,
+                              ProCyaA_urea = ProCyaA - Urea,
+                              levels=designMat)
+print(cont.matrix) 
+```
+
+__10. Estimación del modelo i selección de genes__
+
+Estimaremos mediante modelo lineal mediante la función “lmFit” del paquete “limma” con el que se realizaran pruebas de significación que determinaran que genes podemos considerar diferencialmente expresados o no en los diferentes grupos i en qué grado de significancia. Toda la información se almacenará en “fit.man”. 
+
+```{r}
+library(limma)
+fit<-lmFit(eset_filtered, designMat)
+fit.main<-contrasts.fit(fit, cont.matrix)
+fit.main<-eBayes(fit.main)
+class(fit.main)
+```
+
+__11. Obtención de listas de genes expresados diferencialmente__
+
+Con la función “topTable” obtendremos listas de los genes ordenados ascendentemente en función del su p-valor y relacionarlo con su expresión diferencial.
+
+
+```{r}
+topTab_CyaA_inac_urea <- topTable (fit.main, number=nrow(fit.main), coef="CyaA_inac_urea", adjust="fdr") 
+```
+
+
+```{r}
+topTab_CyaA_urea<- topTable (fit.main, number=nrow(fit.main), coef="CyaA_urea", adjust="fdr") 
+```
+
+```{r}
+topTab_ProCyaA_urea<- topTable (fit.main, number=nrow(fit.main), coef="ProCyaA_urea", adjust="fdr") 
+```
+En las diversas tablas se pueden observar los genes con una significación mayor para los 3 tipos de CyaA. Cabe destacar que la mayor significancia se observa en la comparación de CyaA activa e invasiva.  
+
+__12. Anotación de los genes__
+
+Anotaremos los genes obtenidos en el apartado anterior para conocer los genes, funciones y rutas a los que pertenecen. Además guardaremos en tablas en la carpeta resultados.
+
+```{r}
+annotatedTopTable <- function(topTab, anotPackage)
+{
+  topTab <- cbind(PROBEID=rownames(topTab), topTab)
+  myProbes <- rownames(topTab)
+  thePackage <- eval(parse(text = anotPackage))
+  geneAnots <- select(thePackage, myProbes, c("SYMBOL", "ENTREZID", "GENENAME"))
+  annotatedTopTab <- merge(x=geneAnots, y=topTab, by.x="PROBEID", by.y="PROBEID")
+return(annotatedTopTab)
+}
+```
+
+```{r}
+topAnnotated_CyaA_inac_urea  <- annotatedTopTable (topTab_CyaA_inac_urea, anotPackage="mouse4302.db")
+topAnnotated_CyaA_urea  <- annotatedTopTable (topTab_CyaA_urea, anotPackage="mouse4302.db")
+topAnnotated_ProCyaA_urea <- annotatedTopTable (topTab_ProCyaA_urea, anotPackage="mouse4302.db")
+write.csv(topAnnotated_CyaA_inac_urea, file="./resultados/topAnnotated_CyaA_inac_urea.csv")
+write.csv(topAnnotated_CyaA_urea, file="./resultados/topAnnotated_CyaA_urea.csv")
+write.csv(topAnnotated_ProCyaA_urea, file="./resultados/topAnnotated_ProCyaA_urea.csv")
+```
+
+__13. Visualización de la expresión diferencial de genes__
+
+_13.1. Gráficos de volcán_
+
+Elaboraremos un gráfico en volcán para poder visualizar la cantidad de genes con una expresión diferencial.
+
+```{r}
+library(mouse4302.db)
+geneSymbols <- select(mouse4302.db, rownames(fit.main), c("SYMBOL"))
+SYMBOLS<- geneSymbols$SYMBOL
+
+volcanoplot(fit.main, coef=1, highlight=4, names=SYMBOLS, main=paste("Differentially expressed genes", colnames(cont.matrix)[1], sep="\n"))
+abline(v=c(-1,1))
+
+volcanoplot(fit.main, coef=2, highlight=4, names=SYMBOLS, main=paste("Differentially expressed genes", colnames(cont.matrix)[2], sep="\n"))
+abline(v=c(-1,1))
+
+volcanoplot(fit.main, coef=3, highlight=4, names=SYMBOLS, main=paste("Differentially expressed genes", colnames(cont.matrix)[3], sep="\n"))
+abline(v=c(-1,1))
+```
+
+En primer gráfico volcán donde se compara CyaA* y Urea podemos observar que solo dos genes Saa y Acod1 resultan significativos.
+
+En el segundo gráfico volcán podemos observar la comparación de CyaA y Urea en el cual se observan múltiples genes significativamente expresados diferencialmente.
+
+Finalmente en el último gráfico podemos observar la comparación entre ProCyaA* y Urea y podemos ver que no se han obtenido diferencias significativas en la expresión de los dos grupos. 
+
+_13.2. Comparaciones múltiples_
+
+La expresión diferencial también la podemos observar mediante una comparación múltiple concretamente un VennDiagram. 
+
+```{r}
+library(limma)
+res<-decideTests(fit.main, method="separate", adjust.method="fdr", p.value=0.1, lfc=1)
+sum.res.rows<-apply(abs(res),1,sum)
+res.selected<-res[sum.res.rows!=0,] 
+print(summary(res))
+```
+
+En esta tabla podemos observar que los dos genes que hemos observado antes en el gráfico de volcán de CyaA* y Urea están sobrexpresados. Además podemos observar que en el caso de CyaA y Urea, se observa una leve mayor infraexpresión de genes. 
+
+```{r}
+ vennDiagram (res.selected[,1:3], cex=0.9)
+title("Genes en común entre las tres comparaciones \ Genes seleccionados con un FDR < 0.1 and logFC > 1")
+```
+
+El VennDiagram nos muestra aquellas expresiones que son comunes entre los tres tipos de CyaA y podemos observar que uno de los genes diferencialmente expresados es común entre CyaA* y CyaA.
+
+_13.3. Mapa de calor_
+
+Visualizaremos las expresiones positivas y negativas de los genes mediante un mapa de calor, y ordenado con un clusterizacion jerárquica para encontrar patrones asociados con los grupos.
+
+```{r}
+probesInHeatmap <- rownames(res.selected)
+HMdata <- exprs(eset_filtered)[rownames(exprs(eset_filtered)) %in% probesInHeatmap,]
+
+geneSymbols <- select(mouse4302.db, rownames(HMdata), c("SYMBOL"))
+SYMBOLS<- geneSymbols$SYMBOL
+rownames(HMdata) <- SYMBOLS
+write.csv(HMdata, file = file.path("./resultados/data4Heatmap.csv"))
+```
+
+```{r}
+my_palette <- colorRampPalette(c("blue", "red"))(n = 299)
+library(gplots)
+ 
+heatmap.2(HMdata,
+           Rowv = TRUE,
+           Colv = TRUE,
+           dendrogram = "both",
+           main = "Differentially expressed genes \n FDR < 0,1, logFC >=1",
+           scale = "row",
+           col = my_palette,
+           sepcolor = "white",
+           sepwidth = c(0.05,0.05),
+           cexRow = 0.7,
+           cexCol = 0.9,
+           key = TRUE,
+           keysize = 1.5,
+           density.info = "histogram",
+           ColSideColors = c(rep("red",3),rep("blue",3), rep("green",3), rep("yellow",3)),
+           tracecol = NULL,
+           srtCol = 30)
+```
+
+Podemos observar como el grupo azul (CyaA) presenta un patrón de expresión opuesto a los otros tres grupos
+
+__14. Significado biológico de los resultados__
+
+En este último punto del análisis, interpretaremos los resultados obtenidos dándole un significado biológico al listado de genes obtenidos anteriormente como diferencialmente expresados. Observaremos que procesos biológicos y funciones pueden estar afectando la presencia de la toxina CyaA. Para ello, utilizaremos el paquete “ReactimePA”.
+
+```{r}
+ listOfTables <- list(CyaA_inac_urea = topTab_CyaA_inac_urea, 
+                      CyaA_urea  = topTab_CyaA_urea, 
+                      ProCyaA_urea = topTab_ProCyaA_urea)
+ listOfSelected <- list()
+ for (i in 1:length(listOfTables)){
+   # select the toptable
+   topTab <- listOfTables[[i]]
+   # select the genes to be included in the analysis
+   whichGenes<-topTab["adj.P.Val"]<0.15
+   selectedIDs <- rownames(topTab)[whichGenes]
+   # convert the ID to Entrez
+   EntrezIDs<- select(mouse4302.db, selectedIDs, c("ENTREZID"))
+   EntrezIDs <- EntrezIDs$ENTREZID
+   listOfSelected[[i]] <- EntrezIDs
+   names(listOfSelected)[i] <- names(listOfTables)[i]
+ }
+ sapply(listOfSelected, length)
+
+```
+
+```{r}
+ mapped_genes2GO <- mappedkeys(org.Mm.egGO)
+ mapped_genes2KEGG <- mappedkeys(org.Mm.egPATH)
+ mapped_genes <- union(mapped_genes2GO , mapped_genes2KEGG)
+```
+```{r}
+ library(ReactomePA)
+ 
+listOfData <- listOfSelected[1:2]
+ comparisonsNames <- names(listOfData)
+ universe <- mapped_genes
+ 
+ for (i in 1:length(listOfData)){
+   genesIn <- listOfData[[i]]
+   comparison <- comparisonsNames[i]
+   enrich.result <- enrichPathway(gene = genesIn,
+                                  pvalueCutoff = 0.05,
+                                  readable = T,
+                                  pAdjustMethod = "BH",
+                                  organism = "mouse",
+                                  universe = universe)
+   
+   cat("##################################")
+   cat("\nComparison: ", comparison,"\n")
+   print(head(enrich.result))
+
+   if (length(rownames(enrich.result@result)) != 0) {
+   write.csv(as.data.frame(enrich.result), 
+              file =paste0("./resultados/","ReactomePA.Results.",comparison,".csv"), 
+              row.names = FALSE)
+   
+   pdf(file=paste0("./resultados/","ReactomePABarplot.",comparison,".pdf"))
+     print(barplot(enrich.result, showCategory = 15, font.size = 4, 
+             title = paste0("Reactome Pathway Analysis for ", comparison,". Barplot")))
+   dev.off()
+   
+   pdf(file = paste0("./resultados/","ReactomePAcnetplot.",comparison,".pdf"))
+     print(cnetplot(enrich.result, categorySize = "geneNum", schowCategory = 15, 
+          vertex.label.cex = 0.75))
+        dev.off()
+    }
+  }
+```
+
+En el gráfico de barras ReactomePABarplot que genera ReactomePA podemos observar que para CyaA* el proceso con mayor significancia fue “Peptide ligand−binding receptors” y en el caso de CyaA varios procesos relacionados con el ciclo celular. 
+
+# Discusión
+A mi parecer es un estudio muy completo con un numero de muestras adecuado (triplicados), muy utilizado experimentalmente y cumple su objetivo de observar el efecto en la transcriptomica de los macrófagos la presencia de la toxina CyaA. La única limitación que observo es la falta de un quinto experimento en el que se trataran a los macrófagos con la toxina activa enzimáticamente pero no invasiva.
